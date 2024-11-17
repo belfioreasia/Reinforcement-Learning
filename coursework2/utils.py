@@ -8,7 +8,7 @@ from torch import nn
 
 class ReplayBuffer():
     def __init__(self, size:int):
-        """Replay buffer initialisation
+        """(Episode) Replay buffer initialisation
 
         Args:
             size: maximum numbers of objects stored by replay buffer
@@ -45,7 +45,10 @@ class DQN(nn.Module):
         DQN initialisation
 
         Args:
-            layer_sizes: list with size of each layer as elements
+            layer_sizes: list with size of each layer as elements:
+                        - layer_sizes[0]: input dimension
+                        - layer_sizes[1:len(layer_sizes)-2]: hidden layers sizes
+                        - layer_sizes[len(layer_sizes)-1]: output dimension
         """
         super(DQN, self).__init__()
         self.layers = nn.ModuleList([nn.Linear(layer_sizes[i], layer_sizes[i+1]) for i in range(len(layer_sizes)-1)])
@@ -95,7 +98,28 @@ def epsilon_greedy(epsilon:float, dqn:DQN, state:torch.Tensor)->int:
         return greedy_act
     else:
         return random.randint(0,num_actions-1)
-
+    
+def epsilon_greedy_decay(epsilon:float, decay_rate:float, t:int, dqn:DQN, state:torch.Tensor)->int:
+    """Sample an epsilon-greedy action according to a given DQN
+    
+    Args:
+        epsilon: parameter for epsilon-greedy action selection
+        dqn: the DQN that selects the action
+        state: state at which the action is chosen
+    
+    Returns:
+        Sampled epsilon-greedy action
+    """
+    q_values = dqn(state)
+    num_actions = q_values.shape[0]
+    greedy_act = int(torch.argmax(q_values))
+    p = float(torch.rand(1))
+    epsilon = epsilon * (decay_rate**t)
+    if p>epsilon:
+        return greedy_act
+    else:
+        return random.randint(0,num_actions-1)
+    
 def update_target(target_dqn:DQN, policy_dqn:DQN):
     """Update target network parameters using policy network.
     Does not return anything but modifies the target network passed as parameter
