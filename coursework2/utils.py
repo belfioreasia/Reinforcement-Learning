@@ -1,8 +1,14 @@
 import random
 from collections import deque
 
+import matplotlib.pyplot as plt
+import numpy as np
+import os
+
 import torch
 import torch.nn.functional as F
+import torch.optim as optim
+import gym
 from gym.core import Env
 from torch import nn
 
@@ -99,11 +105,14 @@ def epsilon_greedy(epsilon:float, dqn:DQN, state:torch.Tensor)->int:
     else:
         return random.randint(0,num_actions-1)
     
+# Additional Function Implemented
 def epsilon_greedy_decay(epsilon:float, decay_rate:float, t:int, dqn:DQN, state:torch.Tensor)->int:
-    """Sample an epsilon-greedy action according to a given DQN
+    """Sample an epsilon-greedy action with decaying epsilon according to a given DQN.
     
     Args:
         epsilon: parameter for epsilon-greedy action selection
+        decay_rate: decay rate for epsilon
+        t: current episode number for decay calculation
         dqn: the DQN that selects the action
         state: state at which the action is chosen
     
@@ -152,3 +161,228 @@ def loss(policy_dqn:DQN, target_dqn:DQN,
     bellman_targets = (~dones).reshape(-1)*(target_dqn(next_states)).max(1).values + rewards.reshape(-1)
     q_values = policy_dqn(states).gather(1, actions).reshape(-1)
     return ((q_values - bellman_targets)**2).mean()
+
+# Additional Function Implemented
+def train_net(NUM_RUNS,A,B,C,D,E,F,G,H,I,decay=0,model_optim="Adam",save=[False, ""]):
+    """Create a DQN using the given parameters and train it. Optionally save the model.
+    
+    Args:
+        NUM_RUNS: total number of training runs
+        A: size of each hidden layer in the model
+        B: number of model hidden layers
+        C: model learning rate
+        D: size of Replay Buffer
+        E: number of training episodes
+        F: epsilon value for epsilon-greedy policy
+        G: reward discount factor
+        H: size of replay sampled training batch
+        I: frequency (number of steps) of target network update
+        decay: decay rate for epsilon
+        model_optim: name of model optimizer for training
+        save: boolean to locally save model (and where) or not
+    
+    Returns:
+        runs_results: list of returns for each run collected for every episode
+    """
+    runs_results = []
+
+    env = gym.make('CartPole-v1')
+    for run in range(NUM_RUNS):
+        if (run+1) % 5 == 0: print(f"Starting run {run+1} of {NUM_RUNS}")
+        layers = [4] + [A]*B + [2]
+        policy_net = DQN(layers)
+        target_net = DQN(layers)
+        update_target(target_net, policy_net)
+        target_net.eval()
+
+        if model_optim == "Adam":
+            optimizer = optim.Adam(policy_net.parameters(), lr=C)
+        else:
+            optimizer = optim.SGD(policy_net.parameters(), lr=C)
+        
+        memory = ReplayBuffer(D)
+        steps_done = 0
+        episode_durations = []
+
+        for i_episode in range(E):
+            # if (i_episode+1) % 50 == 0:
+            #     print("episode ", i_episode+1, "/", E)
+
+            observation, info = env.reset()
+            state = torch.tensor(observation).float()
+
+            done = False
+            terminated = False
+            t = 0
+            while not (done or terminated):
+
+                # Select and perform an action
+                if decay==0:
+                    action = epsilon_greedy(F, policy_net, state)
+                else:
+                    action = epsilon_greedy_decay(F, decay, i_episode, policy_net, state)
+
+                observation, reward, done, terminated, info = env.step(action)
+                reward = torch.tensor([reward])/G
+                action = torch.tensor([action])
+                next_state = torch.tensor(observation).reshape(-1).float()
+                memory.push([state, action, next_state, reward, torch.tensor([done])])
+
+                # Move to the next state
+                state = next_state
+
+                # Perform one step of the optimization (on the policy network)
+                if not len(memory.buffer) < H:
+                    transitions = memory.sample(H)
+                    state_batch, action_batch, nextstate_batch, reward_batch, dones = (torch.stack(x) for x in zip(*transitions))
+                    # Compute loss
+                    mse_loss = loss(policy_net, target_net, state_batch, action_batch, reward_batch, nextstate_batch, dones)
+                    # Optimize the model
+                    optimizer.zero_grad()
+                    mse_loss.backward()
+                    optimizer.step()
+                
+                if done or terminated:
+                    episode_durations.append(t + 1)
+                t += 1
+                steps_done += 1
+                # Update the target network, copying all weights and biases in DQN
+                if steps_done % I == 0: 
+                    update_target(target_net, policy_net)
+        runs_results.append(episode_durations)
+    print('Complete')
+
+    if save[0]:
+        torch.save(policy_net, save[1])
+        # torch.save(target_net, save[1])
+        print("Model saved.")
+
+    return runs_results
+
+# Additional Function Implemented
+def visualise_net_results(net:DQN, position:float, velocity:float, q=False, save=[False, 0]):
+    """Visualise the DQN learnt policy and Q-Values as a function of pole angle and angular velocity.
+    
+    Args:
+        NUM_RUNS: total number of training runs
+        A: size of each hidden layer in the model
+        B: number of model hidden layers
+        C: model learning rate
+        D: size of Replay Buffer
+        E: number of training episodes
+        F: epsilon value for epsilon-greedy policy
+        G: reward discount factor
+        H: size of replay sampled training batch
+        I: frequency (number of steps) of target network update
+        decay: decay rate for epsilon
+        model_optim: name of model optimizer for training
+        save: boolean to locally save model or not
+    
+    Returns:
+        runs_results: list of returns for each run collected for every episode
+    """
+    angle_range = .2095 # you may modify this range
+    omega_range = 1     # you may modify this range
+
+    angle_samples = 100
+    omega_samples = 100
+    angles = torch.linspace(angle_range, -angle_range, angle_samples)
+    omegas = torch.linspace(-omega_range, omega_range, omega_samples)
+
+    greedy_q_array = torch.zeros((angle_samples, omega_samples))
+    policy_array = torch.zeros((angle_samples, omega_samples))
+    for i, angle in enumerate(angles):
+        for j, omega in enumerate(omegas):
+            state = torch.tensor([position, velocity, angle, omega]) # center position
+            with torch.no_grad():
+                q_vals = net(state)
+                greedy_action = q_vals.argmax()
+                greedy_q_array[i, j] = q_vals[greedy_action]
+                policy_array[i, j] = greedy_action
+    if q:
+        plt.contourf(angles, omegas, greedy_q_array.T, cmap='cividis', levels=100)
+        plt.title(f"Q Value for position={position}, velocity={velocity}")
+    else:
+        plt.contourf(angles, omegas, policy_array.T, cmap='cividis')
+        plt.title(f"Policy for position={position}, velocity={velocity}")
+    plt.colorbar()
+    plt.xlabel("angle")
+    plt.ylabel("angular velocity (m/s)")
+
+    if save[0]:
+        filepath = f"results/Q2/{str(save[1])}"
+        os.makedirs(filepath, exist_ok=True)
+        filename = "/"
+        if q:
+            filename += "q-"
+        if velocity == 0.5:
+            filename += "05"
+        else:
+            filename += f"{int(velocity)}"
+        filepath += (filename + ".png")
+        plt.savefig(filepath)
+        print(f"Saved figure at {filepath}")
+    
+    plt.show()
+
+# Additional Function Implemented
+def print_hyperparameters(A,B,C,D,E,F,G,H,I,DECAY_RATE):
+    """Print the chosen DQN hyperparameters.
+    
+    Args:
+        A: size of each hidden layer in the model
+        B: number of model hidden layers
+        C: model learning rate
+        D: size of Replay Buffer
+        E: number of training episodes
+        F: epsilon value for epsilon-greedy policy
+        G: reward discount factor
+        H: size of replay sampled training batch
+        I: frequency (number of steps) of target network update
+        DECAY_RATE: decay rate for epsilon 
+    """
+    print("\nDQN Hyperparameters:")
+    print(f"A = {A} # size of each hidden layer")
+    print(f"B = {B} # number of hidden layers,")
+    print(f"C = {C} # learning rate")
+    print(f"D = {D} # size of Replay Buffer")
+    print(f"E = {E} # number of training episodes")
+    print(f"F = {F} # epsilon value for epsilon-greedy policy")
+    if DECAY_RATE!=0:
+        print(f"DECAY_RATE = {DECAY_RATE} # epsilon decay rate")
+    print(f"G = {G} # reward discount factor")
+    print(f"H = {H} # size of replay sampled training batch")
+    print(f"I = {I} # frequency (number of steps) of target network update")
+
+# Additional Function Implemented
+def plot_return_by_episode(runs_results, save=[False, "", 0]):
+    """Plot the mean and standard deviation of the returns of the model during training
+       for each eposode in each training run. Optionally locally save the plot.
+    
+    Args:
+        runs_results: list of returns for each run collected during training
+        save: list to optionally save plot (Defaults to False) 
+              - boolean to save the plot 
+              - folder name (local path to save plot)
+              - model number (for file name)
+    """
+    num_episodes = len(runs_results[0])
+    results = torch.tensor(runs_results)
+    means = results.float().mean(0)
+    stds = results.float().std(0)
+
+    plt.plot(torch.arange(num_episodes), means, color='navy', label='mean')
+    plt.ylabel("return")
+    plt.xlabel("episode")
+    plt.fill_between(np.arange(num_episodes), means, means+stds, alpha=0.3, color='cornflowerblue', label='standard deviation')
+    plt.fill_between(np.arange(num_episodes), means, means-stds, alpha=0.3, color='cornflowerblue')
+    plt.axhline(y = 100, color = 'r', linestyle = '--',label= "target return")
+    plt.legend(loc='upper left')
+    plt.title("Average Training Return by Episode")
+
+    if save[0]:
+        filepath = f"results/Q1/{save[1]}/{str(save[2])}-return.png"
+        plt.savefig(filepath)
+        print(f"Saved figure at {filepath}")
+
+    plt.show()
