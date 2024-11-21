@@ -9,6 +9,8 @@ import torch
 import torch.nn.functional as F
 import torch.optim as optim
 import gym
+from gym.wrappers import RecordVideo
+import cv2
 from gym.core import Env
 from torch import nn
 
@@ -163,7 +165,7 @@ def loss(policy_dqn:DQN, target_dqn:DQN,
     return ((q_values - bellman_targets)**2).mean()
 
 # Additional Function Implemented
-def train_net(NUM_RUNS,A,B,C,D,E,F,G,H,I,decay=0,model_optim="Adam",save=[False, ""]):
+def train_net(NUM_RUNS,A,B,C,D,E,F,G,H,I,decay=0,model_optim="Adam",save=[False, ""], show=False):
     """Create a DQN using the given parameters and train it. Optionally save the model.
     
     Args:
@@ -176,7 +178,7 @@ def train_net(NUM_RUNS,A,B,C,D,E,F,G,H,I,decay=0,model_optim="Adam",save=[False,
         F: epsilon value for epsilon-greedy policy
         G: reward discount factor
         H: size of replay sampled training batch
-        I: frequency (number of steps) of target network update
+        I: frequency (number of steps) for each target network update
         decay: decay rate for epsilon
         model_optim: name of model optimizer for training
         save: boolean to locally save model (and where) or not
@@ -186,9 +188,10 @@ def train_net(NUM_RUNS,A,B,C,D,E,F,G,H,I,decay=0,model_optim="Adam",save=[False,
     """
     runs_results = []
 
-    env = gym.make('CartPole-v1')
+    env = gym.make('CartPole-v1',render_mode="human")
     for run in range(NUM_RUNS):
-        if (run+1) % 5 == 0: print(f"Starting run {run+1} of {NUM_RUNS}")
+        print(f"Starting run {run+1} of {NUM_RUNS}")
+
         layers = [4] + [A]*B + [2]
         policy_net = DQN(layers)
         target_net = DQN(layers)
@@ -205,8 +208,8 @@ def train_net(NUM_RUNS,A,B,C,D,E,F,G,H,I,decay=0,model_optim="Adam",save=[False,
         episode_durations = []
 
         for i_episode in range(E):
-            # if (i_episode+1) % 50 == 0:
-            #     print("episode ", i_episode+1, "/", E)
+            if show and (i_episode == E-1) and (run == NUM_RUNS-1):
+                env.render()
 
             observation, info = env.reset()
             state = torch.tensor(observation).float()
@@ -223,7 +226,7 @@ def train_net(NUM_RUNS,A,B,C,D,E,F,G,H,I,decay=0,model_optim="Adam",save=[False,
                     action = epsilon_greedy_decay(F, decay, i_episode, policy_net, state)
 
                 observation, reward, done, terminated, info = env.step(action)
-                reward = torch.tensor([reward])/G
+                reward = torch.tensor([reward])*G
                 action = torch.tensor([action])
                 next_state = torch.tensor(observation).reshape(-1).float()
                 memory.push([state, action, next_state, reward, torch.tensor([done])])
@@ -249,6 +252,11 @@ def train_net(NUM_RUNS,A,B,C,D,E,F,G,H,I,decay=0,model_optim="Adam",save=[False,
                 # Update the target network, copying all weights and biases in DQN
                 if steps_done % I == 0: 
                     update_target(target_net, policy_net)
+            
+            if (i_episode+1) % 100 == 0:
+                print("  Episode ", i_episode+1, "/", E)
+                print("  Average duration: ", np.mean(episode_durations[-100:]))
+
         runs_results.append(episode_durations)
     print('Complete')
 
@@ -256,6 +264,8 @@ def train_net(NUM_RUNS,A,B,C,D,E,F,G,H,I,decay=0,model_optim="Adam",save=[False,
         torch.save(policy_net, save[1])
         # torch.save(target_net, save[1])
         print("Model saved.")
+        
+    if show: env.close()
 
     return runs_results
 
@@ -300,14 +310,14 @@ def visualise_net_results(net:DQN, position:float, velocity:float, q=False, save
                 greedy_q_array[i, j] = q_vals[greedy_action]
                 policy_array[i, j] = greedy_action
     if q:
-        plt.contourf(angles, omegas, greedy_q_array.T, cmap='cividis', levels=100)
+        plt.contourf(angles, omegas, greedy_q_array.T, cmap='cividis', levels=1000)
         plt.title(f"Q Value for position={position}, velocity={velocity}")
     else:
-        plt.contourf(angles, omegas, policy_array.T, cmap='cividis')
+        plt.contourf(angles, omegas, policy_array.T, cmap='cividis', levels=2)
         plt.title(f"Policy for position={position}, velocity={velocity}")
     plt.colorbar()
-    plt.xlabel("angle")
-    plt.ylabel("angular velocity (m/s)")
+    plt.xlabel("angle (rad)")
+    plt.ylabel("angular velocity (rad/s)")
 
     if save[0]:
         filepath = f"results/Q2/{str(save[1])}"
@@ -372,8 +382,8 @@ def plot_return_by_episode(runs_results, save=[False, "", 0]):
     stds = results.float().std(0)
 
     plt.plot(torch.arange(num_episodes), means, color='navy', label='mean')
-    plt.ylabel("return")
-    plt.xlabel("episode")
+    plt.ylabel("return[au]")
+    plt.xlabel("episode number")
     plt.fill_between(np.arange(num_episodes), means, means+stds, alpha=0.3, color='cornflowerblue', label='standard deviation')
     plt.fill_between(np.arange(num_episodes), means, means-stds, alpha=0.3, color='cornflowerblue')
     plt.axhline(y = 100, color = 'r', linestyle = '--',label= "target return")
