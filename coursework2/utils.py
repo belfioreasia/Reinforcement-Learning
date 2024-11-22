@@ -1,17 +1,23 @@
+## Reinforcement Learning Coursework 2
+## Belfiore Asia, cid: 02129867
+## MSc Advanced Computing, Department of Computing, Imperial College London
+## 22 November 2024
+
 import random
 from collections import deque
 
-import matplotlib.colors as mcols
-import matplotlib.pyplot as plt
-import numpy as np
-import os
-
 import torch
+from torch import nn
 import torch.nn.functional as F
 import torch.optim as optim
 import gym
 from gym.core import Env
-from torch import nn
+
+# Additional imports
+import matplotlib.colors as mcols
+import matplotlib.pyplot as plt
+import numpy as np
+import os
 
 class ReplayBuffer():
     def __init__(self, size:int):
@@ -106,6 +112,7 @@ def epsilon_greedy(epsilon:float, dqn:DQN, state:torch.Tensor)->int:
     else:
         return random.randint(0,num_actions-1)
     
+
 # Additional Function Implemented
 def epsilon_greedy_decay(epsilon:float, decay_rate:float, t:int, dqn:DQN, state:torch.Tensor)->int:
     """Sample an epsilon-greedy action with decaying epsilon according to a given DQN.
@@ -129,6 +136,7 @@ def epsilon_greedy_decay(epsilon:float, decay_rate:float, t:int, dqn:DQN, state:
         return greedy_act
     else:
         return random.randint(0,num_actions-1)
+   
     
 def update_target(target_dqn:DQN, policy_dqn:DQN):
     """Update target network parameters using policy network.
@@ -163,9 +171,10 @@ def loss(policy_dqn:DQN, target_dqn:DQN,
     q_values = policy_dqn(states).gather(1, actions).reshape(-1)
     return ((q_values - bellman_targets)**2).mean()
 
+
 # Additional Function Implemented
 def train_net(NUM_RUNS,A,B,C,D,E,F,G,H,I,decay=0,model_optim="Adam",save=[False, ""], show=False):
-    """Create a DQN using the given parameters and train it. Optionally save the model.
+    """Create a DQN using the given parameters and train it. Optionally save the model locally to a given path.
     
     Args:
         NUM_RUNS: total number of training runs
@@ -178,9 +187,10 @@ def train_net(NUM_RUNS,A,B,C,D,E,F,G,H,I,decay=0,model_optim="Adam",save=[False,
         G: reward discount factor
         H: size of replay sampled training batch
         I: frequency (number of steps) for each target network update
-        decay: decay rate for epsilon
-        model_optim: name of model optimizer for training
-        save: boolean to locally save model (and where) or not
+        decay: decay rate for epsilon (if 0, it uses epsilon-greedy with no decay)
+        model_optim: name of model optimizer for training (either "Adam" or "SGD")
+        save: list to locally save model (boolean, first list entry) and where (string, second list entry)
+        show: boolean to graphically show the simulation of the game (if true, only shows the last episode of the last run)
     
     Returns:
         runs_results: list of returns for each run collected for every episode
@@ -200,6 +210,7 @@ def train_net(NUM_RUNS,A,B,C,D,E,F,G,H,I,decay=0,model_optim="Adam",save=[False,
         update_target(target_net, policy_net)
         target_net.eval()
 
+        # set model optimiser based on parameter
         if model_optim == "Adam":
             optimizer = optim.Adam(policy_net.parameters(), lr=C)
         else:
@@ -210,6 +221,7 @@ def train_net(NUM_RUNS,A,B,C,D,E,F,G,H,I,decay=0,model_optim="Adam",save=[False,
         episode_durations = []
 
         for i_episode in range(E):
+            # graphically render the last episode of the last run
             if show and ((i_episode == E-1) and (run == NUM_RUNS-1)):
                 env.render()
 
@@ -271,27 +283,18 @@ def train_net(NUM_RUNS,A,B,C,D,E,F,G,H,I,decay=0,model_optim="Adam",save=[False,
     
     return policy_net, runs_results
 
+
 # Additional Function Implemented
 def visualise_net_results(net:DQN, position:float, velocity:float, q=False, save=[False, 0]):
     """Visualise the DQN learnt policy and Q-Values as a function of pole angle and angular velocity.
     
     Args:
-        NUM_RUNS: total number of training runs
-        A: size of each hidden layer in the model
-        B: number of model hidden layers
-        C: model learning rate
-        D: size of Replay Buffer
-        E: number of training episodes
-        F: epsilon value for epsilon-greedy policy
-        G: reward discount factor
-        H: size of replay sampled training batch
-        I: frequency (number of steps) of target network update
-        decay: decay rate for epsilon
-        model_optim: name of model optimizer for training
-        save: boolean to locally save model or not
-    
-    Returns:
-        runs_results: list of returns for each run collected for every episode
+        net: trained DQN model
+        position: cart position in the environment
+        velocity: cart moving velocity 
+        q: boolean to visualise Q-values or policy
+        save: list to locally save model (boolean, first list entry) and where (string, second list entry)
+
     """
     angle_range = .2095 # acceptable range of pole angle for episode to continue
     omega_range = 1  
@@ -315,26 +318,28 @@ def visualise_net_results(net:DQN, position:float, velocity:float, q=False, save
         shadings = 1000
         contour = plt.contourf(angles, omegas, greedy_q_array.T, levels=shadings,
                                cmap='cividis', ncolors=shadings)
-        ticks = torch.linspace(greedy_q_array.min(), greedy_q_array.max(), 5)
-        labels = ["1", "125", "250", "375", "500"]
-        # labels = {f"{int(t)}" for t in ticks}
+        ticks = torch.linspace(greedy_q_array.min(), greedy_q_array.max(), steps=10)
+        labels = {f"{str(t)}" for t in ticks}
+        plt.title(f"Q-Values for position={position}m, velocity={velocity}m/s")
     else:
         contour = plt.contourf(angles, omegas, policy_array.T, levels=[0, 0.5, 1], 
                                cmap=mcols.ListedColormap(['#012F6D', '#EDD54A']), 
                                norm=mcols.BoundaryNorm(boundaries=[0, 0.5, 1], ncolors=2))
         ticks = [0., 1.]
         labels = ['Push Left (0)', 'Push Right (1)']
+        plt.title(f"Policy for position={position}m, velocity={velocity}m/s")
     cbar = plt.colorbar(contour)
     cbar.set_ticks(ticks)
     cbar.set_ticklabels(labels)
-    plt.title(f"Policy for position={position}, velocity={velocity}")
     plt.xlabel("angle (rad)")
     plt.ylabel("angular velocity (rad/s)")
 
     if save[0]:
+        # saves the figure in the folder 'results/Q2/' with the name of the model
         filepath = f"results/Q2/{str(save[1])}"
         os.makedirs(filepath, exist_ok=True)
         filename = "/"
+        # set filename based on q-function or policy
         if q:
             filename += "q-"
         if velocity == 0.5:
@@ -346,6 +351,7 @@ def visualise_net_results(net:DQN, position:float, velocity:float, q=False, save
         print(f"Saved figure at {filepath}")
     
     plt.show()
+
 
 # Additional Function Implemented
 def print_hyperparameters(A,B,C,D,E,F,G,H,I,DECAY_RATE):
@@ -362,6 +368,7 @@ def print_hyperparameters(A,B,C,D,E,F,G,H,I,DECAY_RATE):
         H: size of replay sampled training batch
         I: frequency (number of steps) of target network update
         DECAY_RATE: decay rate for epsilon 
+
     """
     print("\nDQN Hyperparameters:")
     print(f"A = {A} # size of each hidden layer")
@@ -376,6 +383,7 @@ def print_hyperparameters(A,B,C,D,E,F,G,H,I,DECAY_RATE):
     print(f"H = {H} # size of replay sampled training batch")
     print(f"I = {I} # frequency (number of steps) of target network update")
 
+
 # Additional Function Implemented
 def plot_return_by_episode(runs_results, save=[False, "", 0]):
     """Plot the mean and standard deviation of the returns of the model during training
@@ -383,10 +391,10 @@ def plot_return_by_episode(runs_results, save=[False, "", 0]):
     
     Args:
         runs_results: list of returns for each run collected during training
-        save: list to optionally save plot (Defaults to False) 
-              - boolean to save the plot 
-              - folder name (local path to save plot)
-              - model number (for file name)
+        save: list to optionally save plot (Defaults to False) with:
+              - boolean to save the plot (first list entry)
+              - folder name (local path to save plot) (second list entry)
+              - model number (for file name) (third list entry)
     """
     num_episodes = len(runs_results[0])
     results = torch.tensor(runs_results)
@@ -403,83 +411,8 @@ def plot_return_by_episode(runs_results, save=[False, "", 0]):
     plt.title("Average Training Return by Episode")
 
     if save[0]:
+        # saves the figure in the folder 'results/Q1/[]-return' with [name of the model]
         filepath = f"results/Q1/{save[1]}/{str(save[2])}-return.png"
-        plt.savefig(filepath)
-        print(f"Saved figure at {filepath}")
-    
-    plt.show()
-
-
-def visualise_net_from_training_run(runs_result:list, position:float, velocity:float, q=False, save=[False, 0]):
-    """Visualise the DQN learnt policy and Q-Values as a function of pole angle and angular velocity.
-    
-    Args:
-        NUM_RUNS: total number of training runs
-        A: size of each hidden layer in the model
-        B: number of model hidden layers
-        C: model learning rate
-        D: size of Replay Buffer
-        E: number of training episodes
-        F: epsilon value for epsilon-greedy policy
-        G: reward discount factor
-        H: size of replay sampled training batch
-        I: frequency (number of steps) of target network update
-        decay: decay rate for epsilon
-        model_optim: name of model optimizer for training
-        save: boolean to locally save model or not
-    
-    Returns:
-        runs_results: list of returns for each run collected for every episode
-    """
-    angle_range = .2095 # acceptable range of pole angle for episode to continue
-    omega_range = 1  
-
-    angle_samples = 100
-    omega_samples = 100
-    angles = torch.linspace(angle_range, -angle_range, angle_samples)
-    omegas = torch.linspace(-omega_range, omega_range, omega_samples)
-
-    greedy_q_array = torch.zeros((angle_samples, omega_samples))
-    policy_array = torch.zeros((angle_samples, omega_samples))
-    for i, angle in enumerate(angles):
-        for j, omega in enumerate(omegas):
-            state = torch.tensor([position, velocity, angle, omega]) # center position
-            with torch.no_grad():
-                q_vals = net(state)
-                greedy_action = q_vals.argmax()
-                greedy_q_array[i, j] = q_vals[greedy_action]
-                policy_array[i, j] = greedy_action
-    if q:
-        shadings = 1000
-        contour = plt.contourf(angles, omegas, greedy_q_array.T, levels=shadings,
-                               cmap='cividis', ncolors=shadings)
-        ticks = torch.linspace(greedy_q_array.min(), greedy_q_array.max(), 5)
-        labels = ["1", "125", "250", "375", "500"]
-        # labels = {f"{int(t)}" for t in ticks}
-    else:
-        contour = plt.contourf(angles, omegas, policy_array.T, levels=[0, 0.5, 1], 
-                               cmap=mcols.ListedColormap(['#012F6D', '#EDD54A']), 
-                               norm=mcols.BoundaryNorm(boundaries=[0, 0.5, 1], ncolors=2))
-        ticks = [0., 1.]
-        labels = ['Push Left (0)', 'Push Right (1)']
-    cbar = plt.colorbar(contour)
-    cbar.set_ticks(ticks)
-    cbar.set_ticklabels(labels)
-    plt.title(f"Policy for position={position}, velocity={velocity}")
-    plt.xlabel("angle (rad)")
-    plt.ylabel("angular velocity (rad/s)")
-
-    if save[0]:
-        filepath = f"results/Q2/{str(save[1])}"
-        os.makedirs(filepath, exist_ok=True)
-        filename = "/"
-        if q:
-            filename += "q-"
-        if velocity == 0.5:
-            filename += "05"
-        else:
-            filename += f"{int(velocity)}"
-        filepath += (filename + ".png")
         plt.savefig(filepath)
         print(f"Saved figure at {filepath}")
     
