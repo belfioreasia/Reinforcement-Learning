@@ -1,6 +1,7 @@
 import random
 from collections import deque
 
+import matplotlib.colors as mcols
 import matplotlib.pyplot as plt
 import numpy as np
 import os
@@ -9,8 +10,6 @@ import torch
 import torch.nn.functional as F
 import torch.optim as optim
 import gym
-from gym.wrappers import RecordVideo
-import cv2
 from gym.core import Env
 from torch import nn
 
@@ -188,7 +187,10 @@ def train_net(NUM_RUNS,A,B,C,D,E,F,G,H,I,decay=0,model_optim="Adam",save=[False,
     """
     runs_results = []
 
-    env = gym.make('CartPole-v1',render_mode="human")
+    if show:
+        env = gym.make('CartPole-v1',render_mode="human")
+    else:
+        env = gym.make('CartPole-v1')
     for run in range(NUM_RUNS):
         print(f"Starting run {run+1} of {NUM_RUNS}")
 
@@ -208,7 +210,7 @@ def train_net(NUM_RUNS,A,B,C,D,E,F,G,H,I,decay=0,model_optim="Adam",save=[False,
         episode_durations = []
 
         for i_episode in range(E):
-            if show and (i_episode == E-1) and (run == NUM_RUNS-1):
+            if show and ((i_episode == E-1) and (run == NUM_RUNS-1)):
                 env.render()
 
             observation, info = env.reset()
@@ -291,8 +293,8 @@ def visualise_net_results(net:DQN, position:float, velocity:float, q=False, save
     Returns:
         runs_results: list of returns for each run collected for every episode
     """
-    angle_range = .2095 # you may modify this range
-    omega_range = 1     # you may modify this range
+    angle_range = .2095 # acceptable range of pole angle for episode to continue
+    omega_range = 1     
 
     angle_samples = 100
     omega_samples = 100
@@ -312,12 +314,19 @@ def visualise_net_results(net:DQN, position:float, velocity:float, q=False, save
     if q:
         plt.contourf(angles, omegas, greedy_q_array.T, cmap='cividis', levels=1000)
         plt.title(f"Q Value for position={position}, velocity={velocity}")
+        plt.colorbar()
     else:
-        plt.contourf(angles, omegas, policy_array.T, cmap='cividis', levels=2)
-        plt.title(f"Policy for position={position}, velocity={velocity}")
-    plt.colorbar()
+        contour = plt.contourf(angles, omegas, policy_array.T, 
+                               cmap=mcols.ListedColormap(['#012F6D', '#EDD54A']), 
+                               levels=[0, 0.5, 1], 
+                               norm=mcols.BoundaryNorm(boundaries=[0, 0.5, 1], ncolors=2))
+        cbar = plt.colorbar(contour)
+        cbar.set_ticks([0., 1.])
+        cbar.set_ticklabels(['Push Left (0)', 'Push Right (1)'])
+    plt.title(f"Policy for position={position}, velocity={velocity}")
     plt.xlabel("angle (rad)")
     plt.ylabel("angular velocity (rad/s)")
+    plt.show()
 
     if save[0]:
         filepath = f"results/Q2/{str(save[1])}"
@@ -332,8 +341,6 @@ def visualise_net_results(net:DQN, position:float, velocity:float, q=False, save
         filepath += (filename + ".png")
         plt.savefig(filepath)
         print(f"Saved figure at {filepath}")
-    
-    plt.show()
 
 # Additional Function Implemented
 def print_hyperparameters(A,B,C,D,E,F,G,H,I,DECAY_RATE):
@@ -386,13 +393,12 @@ def plot_return_by_episode(runs_results, save=[False, "", 0]):
     plt.xlabel("episode number")
     plt.fill_between(np.arange(num_episodes), means, means+stds, alpha=0.3, color='cornflowerblue', label='standard deviation')
     plt.fill_between(np.arange(num_episodes), means, means-stds, alpha=0.3, color='cornflowerblue')
-    plt.axhline(y = 100, color = 'r', linestyle = '--',label= "target return")
+    plt.axhline(y = 100, color = 'r', alpha=0.5, linestyle = '--', label= "target return")
     plt.legend(loc='upper left')
     plt.title("Average Training Return by Episode")
+    plt.show()
 
     if save[0]:
         filepath = f"results/Q1/{save[1]}/{str(save[2])}-return.png"
         plt.savefig(filepath)
         print(f"Saved figure at {filepath}")
-
-    plt.show()
